@@ -1,0 +1,11 @@
+id: alien4cloud-security-groups-plugin
+name: security groups topology processing plugin
+version: ${project.version}
+description: >
+  This plugin contains topology modifiers to generate security groups topologies
+configuration_class: org.alien4cloud.plugin.security_group.PluginConfiguration
+component_descriptors:
+  - bean_name: security_group-modifier
+    name: Security Groups modifier.
+    description: >
+      Topology modifier that transform a generic topology in ordre to automatically add security groups based on endpoints.
