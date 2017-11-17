@@ -1,0 +1,173 @@
+tosca_definitions_version: alien_dsl_2_0_0
+
+metadata:
+  template_name: 31-nodecellar-network-secgroup-template
+  template_version: 1.4.0-SNAPSHOT
+  template_author: alien4cloud
+
+description: A sample topology template with mongodb.
+
+imports:
+  - tosca-normative-types:1.0.0-ALIEN14
+  - org.alien4cloud.security-groups:2.0.0-SNAPSHOT
+  - mongo-types:1.4.0-SNAPSHOT
+  - nodecellar-type:1.4.0-SNAPSHOT
+  - nodejs-type:1.4.0-SNAPSHOT
+
+topology_template:
+
+  node_templates:
+
+    Mongod:
+      type: org.alien4cloud.nodes.Mongod
+      properties:
+        port: 27017
+      requirements:
+        - hostedOnComputeHost:
+            type_requirement: host
+            node: MongoHost
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+      capabilities:
+        endpoint:
+          properties:
+            port: 27017
+            protocol: tcp
+            secure: false
+            network_name: PRIVATE
+            initiator: source
+
+    Nodejs:
+      type: org.alien4cloud.nodes.Nodejs
+      properties:
+        component_version: 0.12
+      requirements:
+        - hostedOnCompute2Host:
+            type_requirement: host
+            node: NodeJSHost
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+      capabilities:
+        data_endpoint:
+          properties:
+            protocol: tcp
+            secure: false
+            network_name: PRIVATE
+            initiator: source
+        admin_endpoint:
+          properties:
+            secure: true
+            protocol: tcp
+            network_name: PRIVATE
+            initiator: source
+
+    Nodecellar:
+      type: org.alien4cloud.nodes.Nodecellar
+      properties:
+        port: 8088
+      requirements:
+        - nodecellarHostedOnNodejsNodejsHost:
+            type_requirement: host
+            node: Nodejs
+            capability: org.alien4cloud.capabilities.NodeJSAppContainer
+            relationship: org.alien4cloud.relationships.NodecellarHostedOnNodejs
+        - nodejsConnectToMongoMongodEndpoint:
+            type_requirement: database
+            node: Mongod
+            capability: org.alien4cloud.capabilities.endpoint.Mongo
+            relationship: org.alien4cloud.relationships.NodejsConnectToMongo
+      capabilities:
+        app_endpoint:
+          properties:
+            protocol: tcp
+            port: 8088
+            secure: false
+            network_name: PUBLIC
+            initiator: source
+
+    NodeJSHost:
+      type: tosca.nodes.Compute
+      capabilities:
+        scalable:
+          properties:
+            min_instances: 1
+            max_instances: 1
+            default_instances: 1
+        endpoint:
+          properties:
+            secure: true
+            protocol: tcp
+            network_name: PRIVATE
+            initiator: source
+
+    MongoHost:
+      type: tosca.nodes.Compute
+      capabilities:
+        scalable:
+          properties:
+            min_instances: 1
+            max_instances: 1
+            default_instances: 1
+        endpoint:
+          properties:
+            secure: true
+            protocol: tcp
+            network_name: PRIVATE
+            initiator: source
+
+    MongoHostSecgroup:
+      type: org.alien4cloud.nodes.SecurityGroup
+      properties:
+        name: MongoHostSecgroup
+      requirements:
+        - securityGroupConnectsToComputeMongoHostEndpoint:
+            type_requirement: endpoint
+            node: MongoHost
+            capability: tosca.capabilities.Endpoint.Admin
+            relationship: org.alien4cloud.relationships.SecurityGroupConnectsToCompute
+
+    NodeJSHostSecgroup:
+      type: org.alien4cloud.nodes.SecurityGroup
+      properties:
+        name: NodeJSHostSecgroup
+      requirements:
+        - securityGroupConnectsToComputeNodeJsHostEndpoint:
+            type_requirement: endpoint
+            node: NodeJSHost
+            capability: tosca.capabilities.Endpoint.Admin
+            relationship: org.alien4cloud.relationships.SecurityGroupConnectsToCompute
+
+    Nodecellar_app_endpoint_inbound:
+      type: org.alien4cloud.nodes.SecurityGroupRule
+      properties:
+        name: "Nodecellar_app_endpoint_inbound"
+        protocol: TCP
+        direction: inbound
+        port: 8088
+        remote: PUBLIC
+      requirements:
+        - secGroupRuleHostedOnSecGroupNodeJsHostSecgroupSecurity_group_rules:
+            type_requirement: security_group_rules
+            node: NodeJSHostSecgroup
+            capability: org.alien4cloud.capabilities.SecurityGroupRules
+            relationship: org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup
+
+    Mongod_endpoint_inbound:
+      type: org.alien4cloud.nodes.SecurityGroupRule
+      properties:
+        name: "Mongod_endpoint_inbound"
+        protocol: TCP
+        direction: inbound
+        port: 27017
+        remote: "_a4c_NodeJSHostSecgroup"
+      requirements:
+        - secGroupRuleHostedOnSecGroupSecurityGroupSecurity_group_rules:
+            type_requirement: security_group_rules
+            node: MongoHostSecgroup
+            capability: org.alien4cloud.capabilities.SecurityGroupRules
+            relationship: org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup
+        - dependsOnSecurityGroupNodeJsHostSecgroupSecurity_group:
+            type_requirement: security_group_rule
+            node: NodeJSHostSecgroup
+            capability: org.alien4cloud.capabilities.SecurityGroup
+            relationship: org.alien4cloud.relationships.DependsOnSecurityGroup

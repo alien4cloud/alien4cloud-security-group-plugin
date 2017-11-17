@@ -10,11 +10,48 @@ description: TOSCA components to represent Security Group.
 imports:
   - tosca-normative-types:1.0.0-ALIEN14
 
-data_types:
 
-  org.alien4cloud.datatypes.SecurityGroupRule:
-    derived_from: tosca.datatypes.Root
-    description: Describe a security group rule
+node_types:
+
+  org.alien4cloud.nodes.SecurityGroup:
+    abstract: true
+    derived_from: tosca.nodes.Root
+    description: Represent a security groups
+    capabilities:
+      security_group:
+        type: org.alien4cloud.capabilities.SecurityGroup
+      security_group_rules:
+        type: org.alien4cloud.capabilities.SecurityGroupRules
+    requirements:
+      endpoint:
+        capability: tosca.capabilities.Endpoint
+        relationship: org.alien4cloud.relationships.SecurityGroupConnectsToCompute
+        occurrences: [0, unbounded]
+        description: >
+          A security group is linked to a compute.
+    properties:
+      name:
+        type: string
+        description: The name of the security group
+        required: true
+
+  org.alien4cloud.nodes.SecurityGroupRule:
+    abstract: true
+    derived_from: tosca.nodes.Root
+    description: Represent a security rule
+    requirements:
+      security_group_rule:
+        capability: org.alien4cloud.capabilities.SecurityGroup
+        relationship: org.alien4cloud.relationships.DependsOnSecurityGroup
+        occurrences: [0, unbounded]
+        description: >
+          If the remote target or source of this rule depends on another security group, this relationship is to make sure that the target security group is created.
+      security_group_rules:
+        capability: org.alien4cloud.capabilities.SecurityGroupRules
+        relationship: org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup
+        occurrences: [1, 1]
+        description: >
+          A rule must linked to a security group
     properties:
       name:
         type: string
@@ -37,40 +74,46 @@ data_types:
         type: integer
         constraints:
           - in_range : [ 0, 65535 ]
-      target:
+      remote:
         type: string
-        description: CIDR or a security group name
+        description: The source of the traffic to be allowed via this rule. CIDR or a security group name
         constraints:
-          - pattern: '([1-9][0-9]{0,2}\.[0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3}(/[0-9]{1,2})?)|[a-zA-Z-0-9]*' # 10.0.10.2, 10.0.10.0/24 or sg-17281a2
+          - pattern: '([1-9][0-9]{0,2}\.[0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3}(/[0-9]{1,2})?)|[a-zA-Z0-9-_]*' # 10.0.10.2, 10.0.10.0/24, sg-17281a2 or security group name
 
-node_types:
-
-  org.alien4cloud.nodes.SecurityGroup:
-    abstract: true
-    derived_from: tosca.nodes.Root
-    description: Represent a security groups
-    requirements:
-      secure_endpoint:
-        capability: tosca.capabilities.Endpoint
-        relationship: org.alien4cloud.relationships.aws.SecurityGroup
-        occurrences: [0, unbounded]
-    properties:
-      name:
-        type: string
-        description: The name of the security group
-        required: true
-      rules:
-        type: list
-        entry_schema:
-          type: org.alien4cloud.datatypes.SecurityGroupRule
 
   org.alien4cloud.nodes.aws.SecurityGroup:
     derived_from: org.alien4cloud.nodes.SecurityGroup
     description: Implementation of a security group in AWS
+    interfaces:
+      Standard:
+        start: scripts/start.sh # TODO
+
+  org.alien4cloud.nodes.aws.SecurityGroupRule:
+    derived_from: org.alien4cloud.nodes.SecurityGroupRule
+    description: Implementation of a security group rule in AWS
+    interfaces:
+      Standard:
+        start: scripts/start.sh # TODO
+
+capability_types:
+
+  org.alien4cloud.capabilities.SecurityGroup:
+    derived_from: tosca.capabilities.Root
+
+  org.alien4cloud.capabilities.SecurityGroupRules:
+    derived_from: tosca.capabilities.Root
 
 
 relationship_types:
 
-  org.alien4cloud.relationships.aws.SecurityGroup:
+  org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup:
+    derived_from: tosca.relationships.HostedOn
+    valid_target_types: [ org.alien4cloud.capabilities.SecurityGroupRules ]
+
+  org.alien4cloud.relationships.DependsOnSecurityGroup:
     derived_from: tosca.relationships.DependsOn
-    valid_target_types: [ tosca.capabilities.Endpoint ]
+    valid_target_types: [ org.alien4cloud.capabilities.SecurityGroup ]
+
+  org.alien4cloud.relationships.SecurityGroupConnectsToCompute:
+    derived_from: tosca.relationships.ConnectsTo
+    valid_target_types: [ tosca.nodes.Compute ]

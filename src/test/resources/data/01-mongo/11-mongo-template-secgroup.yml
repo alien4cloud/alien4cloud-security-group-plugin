@@ -1,0 +1,68 @@
+tosca_definitions_version: alien_dsl_2_0_0
+
+metadata:
+  template_name: 11-mongo-template-secgroup
+  template_version: 1.4.0-SNAPSHOT
+  template_author: alien4cloud
+
+description: A sample topology template with mongodb.
+
+imports:
+  - tosca-normative-types:1.0.0-ALIEN14
+  - org.alien4cloud.security-groups:2.0.0-SNAPSHOT
+  - mongo-types:1.4.0-SNAPSHOT
+
+topology_template:
+
+  node_templates:
+
+    MongoHost:
+      type: tosca.nodes.Compute
+      capabilities:
+        os:
+          properties:
+            architecture: x86_64
+            type: linux
+            distribution: ubuntu
+
+    Mongod:
+      type: org.alien4cloud.nodes.Mongod
+      requirements:
+        - host:
+            node: MongoHost
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+      capabilities:
+        endpoint:
+          properties:
+            port: 27017
+            protocol: tcp
+            secure: false
+            network_name: PRIVATE
+            initiator: source
+
+    MongoHostSecgroup:
+      type: org.alien4cloud.nodes.SecurityGroup
+      properties:
+        name: MongoHostSecgroup
+      requirements:
+        - securityGroupConnectsToComputeMongoHostEndpoint:
+            type_requirement: endpoint
+            node: MongoHost
+            capability: tosca.capabilities.Endpoint.Admin
+            relationship: org.alien4cloud.relationships.SecurityGroupConnectsToCompute
+
+    Mongod_endpoint_inbound:
+      type: org.alien4cloud.nodes.SecurityGroupRule
+      properties:
+        name: "Mongod_endpoint_inbound"
+        protocol: TCP
+        direction: inbound
+        port: 27017
+        remote: "PRIVATE"
+      requirements:
+        - secGroupRuleHostedOnSecGroupSecurityGroupSecurity_group_rules:
+            type_requirement: security_group_rules
+            node: MongoHostSecgroup
+            capability: org.alien4cloud.capabilities.SecurityGroupRules
+            relationship: org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup

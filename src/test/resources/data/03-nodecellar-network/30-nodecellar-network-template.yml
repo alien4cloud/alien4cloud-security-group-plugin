@@ -1,0 +1,131 @@
+tosca_definitions_version: alien_dsl_2_0_0
+
+metadata:
+  template_name: 30-nodecellar-network-template
+  template_version: 1.4.0-SNAPSHOT
+  template_author: alien4cloud
+
+description: A sample topology template with mongodb.
+
+imports:
+  - tosca-normative-types:1.0.0-ALIEN14
+  - mongo-types:1.4.0-SNAPSHOT
+  - nodecellar-type:1.4.0-SNAPSHOT
+  - nodejs-type:1.4.0-SNAPSHOT
+
+topology_template:
+
+  node_templates:
+
+    PrivateNetwork:
+      type: tosca.nodes.Network
+      properties:
+        ip_version: 4
+
+    PublicNetwork:
+      type: tosca.nodes.Network
+      properties:
+        ip_version: 4
+
+    MongoHost:
+      type: tosca.nodes.Compute
+      requirements:
+        - networkNetworkConnection:
+            type_requirement: network
+            node: PrivateNetwork
+            capability: tosca.capabilities.Connectivity
+            relationship: tosca.relationships.Network
+      capabilities:
+        os:
+          properties:
+            architecture: x86_64
+            type: linux
+            distribution: ubuntu
+
+    Mongod:
+      type: org.alien4cloud.nodes.Mongod
+      requirements:
+        - host:
+            node: MongoHost
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+      capabilities:
+        endpoint:
+          properties:
+            port: 27017
+            protocol: tcp
+            secure: false
+            network_name: PRIVATE
+            initiator: source
+
+    NodeJSHost:
+      type: tosca.nodes.Compute
+      requirements:
+        - networkPrivateNetworkConnection:
+            type_requirement: network
+            node: PrivateNetwork
+            capability: tosca.capabilities.Connectivity
+            relationship: tosca.relationships.Network
+        - networkPublicNetworkConnection:
+            type_requirement: network
+            node: PublicNetwork
+            capability: tosca.capabilities.Connectivity
+            relationship: tosca.relationships.Network
+      capabilities:
+        scalable:
+          properties:
+            min_instances: 1
+            max_instances: 1
+            default_instances: 1
+        endpoint:
+          properties:
+            secure: true
+            protocol: tcp
+            network_name: PRIVATE
+            initiator: source
+
+    Nodejs:
+      type: org.alien4cloud.nodes.Nodejs
+      properties:
+        component_version: 0.12
+      requirements:
+        - hostedOnComputeHost:
+            type_requirement: host
+            node: NodeJSHost
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+      capabilities:
+        data_endpoint:
+          properties:
+            protocol: tcp
+            secure: false
+            network_name: PRIVATE
+            initiator: source
+        admin_endpoint:
+          properties:
+            secure: true
+            protocol: tcp
+            network_name: PRIVATE
+            initiator: source
+
+    Nodecellar:
+      type: org.alien4cloud.nodes.Nodecellar
+      requirements:
+        - nodecellarHostedOnNodejsNodejsHost:
+            type_requirement: host
+            node: Nodejs
+            capability: org.alien4cloud.capabilities.NodeJSAppContainer
+            relationship: org.alien4cloud.relationships.NodecellarHostedOnNodejs
+        - nodejsConnectToMongoMongodEndpoint:
+            type_requirement: database
+            node: Mongod
+            capability: org.alien4cloud.capabilities.endpoint.Mongo
+            relationship: org.alien4cloud.relationships.NodejsConnectToMongo
+      capabilities:
+        app_endpoint:
+          properties:
+            port: 8088
+            protocol: tcp
+            secure: false
+            network_name: PUBLIC
+            initiator: source
