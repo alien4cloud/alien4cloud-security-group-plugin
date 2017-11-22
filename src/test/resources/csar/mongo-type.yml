@@ -1,0 +1,56 @@
+tosca_definitions_version: alien_dsl_1_4_0
+
+metadata:
+  template_name: mongo-types
+  template_version: 1.4.0-SNAPSHOT
+  template_author: alien4cloud
+
+description: Mongo types for Debian systems.
+
+imports:
+  - tosca-normative-types:1.0.0-ALIEN14
+
+node_types:
+  org.alien4cloud.nodes.AbstractMongod:
+    derived_from: tosca.nodes.DBMS
+    abstract: true
+    capabilities:
+      endpoint:
+        type: org.alien4cloud.capabilities.endpoint.Mongo
+    metadata:
+      icon: /images/mongodb.jpg
+    properties:
+      port:
+        type: integer
+        default: 27017
+        constraints:
+          - in_range: [8000,65535]
+
+  org.alien4cloud.nodes.Mongod:
+    derived_from: org.alien4cloud.nodes.AbstractMongod
+    description: >
+      A node to install Mongodb nosql database.
+#    metadata:
+#      icon: /images/mongodb.jpg
+#    interfaces:
+#      Standard:
+#        create: scripts/install-mongo.sh
+#        configure:
+#          inputs:
+#            DB_IP: { get_attribute: [HOST, ip_address] }
+#            DB_PORT: { get_property: [SELF, port] }
+#          implementation: scripts/configure-mongo.sh
+#        start: scripts/start-mongo.sh
+#        stop: scripts/stop-mongo.sh
+
+capability_types:
+  org.alien4cloud.capabilities.endpoint.Mongo:
+    derived_from: tosca.capabilities.Endpoint.Database
+    description: >
+      Capability to connect to a Mongo database through bridge networking.
+    properties:
+      port:
+        type: integer
+        default: 27017
+        constraints:
+          - in_range: [8000,65535]

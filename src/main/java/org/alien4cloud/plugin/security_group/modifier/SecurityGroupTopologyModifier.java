@@ -1,18 +1,15 @@
 package org.alien4cloud.plugin.security_group.modifier;
 
-import static alien4cloud.utils.AlienUtils.safe;
-import static org.alien4cloud.plugin.security_group.modifier.KubeTopologyUtils.*;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
+import alien4cloud.tosca.context.ToscaContext;
+import alien4cloud.tosca.context.ToscaContextual;
+import alien4cloud.utils.PropertyUtil;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import lombok.extern.java.Log;
 import org.alien4cloud.alm.deployment.configuration.flow.FlowExecutionContext;
 import org.alien4cloud.alm.deployment.configuration.flow.TopologyModifierSupport;
 import org.alien4cloud.tosca.model.Csar;
 import org.alien4cloud.tosca.model.definitions.AbstractPropertyValue;
-import org.alien4cloud.tosca.model.definitions.ComplexPropertyValue;
-import org.alien4cloud.tosca.model.definitions.ListPropertyValue;
 import org.alien4cloud.tosca.model.definitions.ScalarPropertyValue;
 import org.alien4cloud.tosca.model.templates.Capability;
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
@@ -21,20 +18,18 @@ import org.alien4cloud.tosca.model.templates.Topology;
 import org.alien4cloud.tosca.model.types.CapabilityType;
 import org.alien4cloud.tosca.model.types.NodeType;
 import org.alien4cloud.tosca.normative.constants.NormativeCapabilityTypes;
-import org.alien4cloud.tosca.normative.constants.NormativeRelationshipConstants;
+import org.alien4cloud.tosca.normative.constants.NormativeComputeConstants;
+import org.alien4cloud.tosca.utils.NodeTemplateUtils;
 import org.alien4cloud.tosca.utils.TopologyNavigationUtil;
+import org.alien4cloud.tosca.utils.ToscaTypeUtils;
+import org.apache.commons.lang.StringUtils;
 import org.springframework.stereotype.Component;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-import alien4cloud.paas.wf.util.WorkflowUtils;
-import alien4cloud.tosca.context.ToscaContext;
-import alien4cloud.tosca.context.ToscaContextual;
-import alien4cloud.utils.AlienUtils;
-import alien4cloud.utils.PropertyUtil;
-import lombok.extern.java.Log;
+import static alien4cloud.utils.AlienUtils.safe;
 
 /**
  * Add Security groups to all nodes with a tosca.capability.Endpoint with a port value.
@@ -43,8 +38,7 @@ import lombok.extern.java.Log;
 @Component(value = "security_group-modifier")
 public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
 
-    public static final String A4C_KUBERNETES_MODIFIER_TAG = "a4c_kubernetes-modifier";
-
+    public static final String SECGROUPRULE_PUBLIC_CIDR = "0.0.0.0/0";
 
     @Override
     @ToscaContextual
@@ -56,116 +50,195 @@ public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
         // for each node type with capabilities of type endpoint
         // - add a org.alien4cloud.security_group.api.types.ServiceResource and weave depends_on relationships
         // - populate properties on the K8S AbstractContainer that host the container image
-        Set<NodeTemplate> nodesWithEndpoint = getNodesWithCapabilityOfType(topology, NormativeCapabilityTypes.ENDPOINT, true);
-        nodesWithEndpoint.forEach(nodeTemplate -> manageNodes(csar, topology, nodeTemplate));
+        Set<NodeTemplate> computes = TopologyNavigationUtil.getNodesOfType(topology, NormativeComputeConstants.COMPUTE_TYPE, true);
 
+        // Construct a map with all node templates that have defined an endpoint group by computes
+        Map<String, List<NodeTemplate>> endpointsPerCompute = Maps.newHashMap();
+        for (NodeTemplate compute : computes) {
+            endpointsPerCompute.put(compute.getName(), this.retrieveHostedNodesWithEndpoint(topology, compute));
+        }
+
+        this.transformTopology(csar, topology, endpointsPerCompute);
     }
 
+    /**
+     * Recursively return all nodeTemplates which own a capability of type tosca.capabilities.Endpoint that have a port value.
+     *
+     * @param topology The entire topology
+     * @param host     The node template of the host
+     * @return A list a node templates which own a capability of type tosca.capabilities.Endpoint that have a port value.
+     */
+    private List<NodeTemplate> retrieveHostedNodesWithEndpoint(Topology topology, NodeTemplate host) {
+        List<NodeTemplate> nodesWithEndpoints = Lists.newArrayList();
+        List<NodeTemplate> hostedNodes = TopologyNavigationUtil.getHostedNodes(topology, host.getName());
+        for (NodeTemplate hosted : hostedNodes) {
+            nodesWithEndpoints.addAll(this.retrieveHostedNodesWithEndpoint(topology, hosted));
+        }
+        Capability endpointCapability = NodeTemplateUtils.getCapabilityByType(host, NormativeCapabilityTypes.ENDPOINT);
+        if (endpointCapability != null && isPropertyNotNull(endpointCapability.getProperties(), "port")) {
+            nodesWithEndpoints.add(host);
+        }
+        return nodesWithEndpoints;
+    }
+
+    private boolean isPropertyNotNull(Map<String, AbstractPropertyValue> properties, String key) {
+        if (properties.containsKey(key)) {
+            AbstractPropertyValue abstractPortPropertyValue = properties.get(key);
+            if (abstractPortPropertyValue instanceof ScalarPropertyValue && ((ScalarPropertyValue) abstractPortPropertyValue).getValue() != null) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /**
+     * Transform the topology by adding security groups
+     *
+     * @param csar
      * @param topology
-     * @param type
-     * @param manageInheritance true if you also want to consider type hierarchy (ie. include that inherit the given type).
-     * @return a set of nodes that are of the given type (or inherit the given type if <code>manageInheritance</code> is true).
+     * @param endpointsPerCompute
      */
-    public static Set<NodeTemplate> getNodesWithCapabilityOfType(Topology topology, String type, boolean manageInheritance) {
-        Set<NodeTemplate> result = Sets.newHashSet();
-        for (NodeTemplate nodeTemplate : safe(topology.getNodeTemplates()).values()) {
-            for ( Capability capa : nodeTemplate.getCapabilities().values()) {
-                if(type.equals(capa.getType())) {
-                    result.add(nodeTemplate);
-                } else if (manageInheritance) {
-                    CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, capa.getType());
-                    if (capabilityType.getDerivedFrom().contains(type)) {
-                        result.add(nodeTemplate);
-                    }
+    private void transformTopology(Csar csar, Topology topology, Map<String, List<NodeTemplate>> endpointsPerCompute) {
+        Map<String, NodeTemplate> computeSecgroup = Maps.newHashMap();
+
+        // Create security groups for all computes
+        for (String computeName : endpointsPerCompute.keySet()) {
+            NodeTemplate secgroupNodeTemplate = this.createSecurityGroupAttachedToCompute(csar, topology, computeName);
+            computeSecgroup.put(computeName, secgroupNodeTemplate);
+        }
+
+        // Looking for endpoints that are target of a relationships
+        List<NodeTemplate> templates = Lists.newArrayList(topology.getNodeTemplates().values());
+        for (NodeTemplate nodeTemplate : templates) {
+            NodeType nodeType = ToscaContext.get(NodeType.class, nodeTemplate.getType());
+            if (!ToscaTypeUtils.isOfType(nodeType, SecurityGroupTopologyUtils.SECGGROUP_TYPES_ABSTRACT)) {
+                List<RelationshipTemplate> endpointRelationships = this.getRelationshipWithEndpointTarget(nodeTemplate);
+                for (RelationshipTemplate relationship : endpointRelationships) {
+                    NodeTemplate targetNodeTemplate = topology.getNodeTemplates().get(relationship.getTarget());
+                    this.createSecurityGroupRule(csar, topology, nodeTemplate, targetNodeTemplate, relationship, computeSecgroup);
                 }
             }
         }
-        return result;
-    }
 
-    private void manageNodes(Csar csar, Topology topology, NodeTemplate nodeTemplate) {
-
-        Set<String> endpointNames = Sets.newHashSet();
-        for (Map.Entry<String, Capability> e : AlienUtils.safe(nodeTemplate.getCapabilities()).entrySet()) {
-            CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, e.getValue().getType());
-            if (WorkflowUtils.isOfType(capabilityType, NormativeCapabilityTypes.ENDPOINT)) {
-                endpointNames.add(e.getKey());
-            }
-        }
-        // endpointNames.forEach(endpointName -> manageContainerEndpoint(csar, topology, containerNodeTemplate, endpointName, containerRuntimeNodeTemplate, deploymentNodeTemplate, allContainerNodes));
-    }
-
-    /**
-     * Each capability of type endpoint is considered for a given node of type container.
-     */
-    private void manageContainerEndpoints(Csar csar, Topology topology, NodeTemplate containerNodeTemplate, NodeTemplate containerRuntimeNodeTemplate, NodeTemplate deploymentNodeTemplate, Set<NodeTemplate> allContainerNodes) {
-        // find every endpoint
-        Set<String> endpointNames = Sets.newHashSet();
-        for (Map.Entry<String, Capability> e : AlienUtils.safe(containerNodeTemplate.getCapabilities()).entrySet()) {
-            CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, e.getValue().getType());
-            if (WorkflowUtils.isOfType(capabilityType, NormativeCapabilityTypes.ENDPOINT)) {
-                endpointNames.add(e.getKey());
-            }
-        }
-        endpointNames.forEach(endpointName -> manageContainerEndpoint(csar, topology, containerNodeTemplate, endpointName, containerRuntimeNodeTemplate, deploymentNodeTemplate, allContainerNodes));
-    }
-
-    /**
-     * For a given endpoint capability of a node of type container, we must create a Service node.
-     */
-    private void manageContainerEndpoint(Csar csar, Topology topology, NodeTemplate containerNodeTemplate, String endpointName, NodeTemplate containerRuntimeNodeTemplate, NodeTemplate deploymentNodeTemplate, Set<NodeTemplate> allContainerNodes) {
-        // fill the ports map of the hosting K8S AbstractContainer
-        AbstractPropertyValue port = containerNodeTemplate.getCapabilities().get(endpointName).getProperties().get("port");
-        ComplexPropertyValue portPropertyValue = new ComplexPropertyValue(Maps.newHashMap());
-        portPropertyValue.getValue().put("containerPort", port);
-        portPropertyValue.getValue().put("name", new ScalarPropertyValue(generateKubeName(endpointName)));
-        appendNodePropertyPathValue(csar, topology, containerRuntimeNodeTemplate, "container.ports", portPropertyValue);
-
-        // add an abstract service node
-        NodeTemplate serviceNode = addNodeTemplate(csar, topology, containerNodeTemplate.getName() + "_" + endpointName + "_Service", K8S_TYPES_ABSTRACT_SERVICE, K8S_CSAR_VERSION);
-        setNodeTagValue(serviceNode, A4C_KUBERNETES_MODIFIER_TAG, "Proxy of node <" + containerNodeTemplate.getName() + "> capability <" + endpointName + ">");
-        // setNodeTagValue(serviceNode, A4C_KUBERNETES_MODIFIER_TAG_SERVICE_ENDPOINT, endpointName);
-
-        // fill properties of service
-        setNodePropertyPathValue(csar, topology, serviceNode, "metadata.name", new ScalarPropertyValue(generateUniqueKubeName(serviceNode.getName())));
-        setNodePropertyPathValue(csar, topology, serviceNode, "spec.service_type", new ScalarPropertyValue("NodePort"));
-        // get the "pod name"
-        AbstractPropertyValue podName = PropertyUtil.getPropertyValueFromPath(AlienUtils.safe(deploymentNodeTemplate.getProperties()), "metadata.name");
-        setNodePropertyPathValue(csar, topology, serviceNode, "spec.selector.app", podName);
-
-        // fill port list
-        Map<String, Object> portEntry = Maps.newHashMap();
-        String portName = generateKubeName(endpointName);
-        portEntry.put("name", new ScalarPropertyValue(portName));
-        portEntry.put("targetPort", new ScalarPropertyValue(portName));
-        portEntry.put("port", port);
-        ComplexPropertyValue complexPropertyValue = new ComplexPropertyValue(portEntry);
-        appendNodePropertyPathValue(csar, topology, serviceNode, "spec.ports", complexPropertyValue);
-
-        // find the deployment node parent of the container
-        NodeTemplate deploymentHost = TopologyNavigationUtil.getHostOfTypeInHostingHierarchy(topology, containerNodeTemplate, K8S_TYPES_ABSTRACT_DEPLOYMENT);
-        // add a depends_on relationship between service and the deployment unit
-        addRelationshipTemplate(csar, topology, serviceNode, deploymentHost.getName(), NormativeRelationshipConstants.DEPENDS_ON, "dependency", "feature");
-
-        // we should find each relationship that targets this endpoint and add a dependency between both deployments
-        for (NodeTemplate containerSourceCandidateNodeTemplate : allContainerNodes) {
-            if (containerSourceCandidateNodeTemplate.getName().equals(containerNodeTemplate.getName())) {
-                // don't consider the current container (owner of the endpoint)
-                continue;
-            }
-
-            for (RelationshipTemplate relationship : AlienUtils.safe(containerSourceCandidateNodeTemplate.getRelationships()).values()) {
-                if (relationship.getTarget().equals(containerNodeTemplate.getName()) && relationship.getTargetedCapabilityName().equals(endpointName)) {
-                    // we need to add a depends_on between the source deployment and the service (if not already exist)
-                    NodeTemplate sourceDeploymentHost = TopologyNavigationUtil.getHostOfTypeInHostingHierarchy(topology, containerSourceCandidateNodeTemplate, K8S_TYPES_ABSTRACT_DEPLOYMENT);
-                    if (!TopologyNavigationUtil.hasRelationship(sourceDeploymentHost, serviceNode.getName(), "dependency", "feature")) {
-                        addRelationshipTemplate(csar, topology, sourceDeploymentHost, serviceNode.getName(), NormativeRelationshipConstants.DEPENDS_ON, "dependency", "feature");
+        // Add public rule
+        for (NodeTemplate nodeTemplate : templates) {
+            for (Map.Entry<String, Capability> entrySet : nodeTemplate.getCapabilities().entrySet()) {
+                CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, entrySet.getValue().getType());
+                if (ToscaTypeUtils.isOfType(capabilityType, NormativeCapabilityTypes.ENDPOINT)) {
+                    if (this.isPublicNetwork(entrySet.getValue())) {
+                        this.createPublicSecurityGroupRule(csar, topology, nodeTemplate, entrySet.getKey(), entrySet.getValue(), computeSecgroup);
                     }
                 }
             }
+
         }
+    }
+
+    private List<RelationshipTemplate> getRelationshipWithEndpointTarget(NodeTemplate template) {
+        List<RelationshipTemplate> list = Lists.newArrayList();
+        for (RelationshipTemplate relationshipTemplate : safe(template.getRelationships()).values()) {
+            CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, relationshipTemplate.getRequirementType());
+            if (ToscaTypeUtils.isOfType(capabilityType, NormativeCapabilityTypes.ENDPOINT)) {
+                list.add(relationshipTemplate);
+            }
+        }
+        return list;
+    }
+
+    private NodeTemplate createPublicSecurityGroupRule(Csar csar, Topology topology, NodeTemplate nodeTemplate, String capabilityName, Capability capability,
+            Map<String, NodeTemplate> computeSecgroup) {
+
+        String ruleName = nodeTemplate.getName() + "_" + capabilityName;
+
+        // Create secgroup rule
+        NodeTemplate sgr = addNodeTemplate(csar, topology, ruleName, SecurityGroupTopologyUtils.SECGGROUPRULE_TYPES_ABSTRACT,
+                SecurityGroupTopologyUtils.SECGROUP_CSAR_VERSION);
+
+        // Fill the properties
+        setNodePropertyPathValue(csar, topology, sgr, "name", new ScalarPropertyValue(ruleName));
+        setNodePropertyPathValue(csar, topology, sgr, "protocol", capability.getProperties().get("protocol"));
+        setNodePropertyPathValue(csar, topology, sgr, "direction", new ScalarPropertyValue("inbound"));
+        setNodePropertyPathValue(csar, topology, sgr, "port", PropertyUtil.getPropertyValueFromPath(safe(capability.getProperties()), "port"));
+        setNodePropertyPathValue(csar, topology, sgr, "remote", new ScalarPropertyValue(SECGROUPRULE_PUBLIC_CIDR));
+
+        // Add relationship to Secgroup
+        NodeTemplate targetCompute = TopologyNavigationUtil.getHostOfTypeInHostingHierarchy(topology, nodeTemplate, NormativeComputeConstants.COMPUTE_TYPE);
+        NodeTemplate targetSecgroup = computeSecgroup.get(targetCompute.getName());
+        String secgroupCapabilityName = this.getCapabilityNameFromType(targetSecgroup, SecurityGroupTopologyUtils.SECGROUPRULES_CAPABILITY);
+        this.addRelationshipTemplate(csar, topology, sgr, targetSecgroup.getName(), SecurityGroupTopologyUtils.REL_SECGROUPRULE_HOSTED_ON_SECGROUP,
+                SecurityGroupTopologyUtils.SECGROUPRULE_REQUIREMENT_SECURITY_GROUP_RULES_NAME, secgroupCapabilityName);
+
+        return sgr;
+
+    }
+
+    private NodeTemplate createSecurityGroupRule(Csar csar, Topology topology, NodeTemplate source, NodeTemplate target, RelationshipTemplate relationship,
+            Map<String, NodeTemplate> computeSecgroup) {
+        Capability capability = NodeTemplateUtils.getCapabilityByType(target, relationship.getRequirementType());
+        String ruleName = target.getName() + "_" + relationship.getTargetedCapabilityName();
+        NodeTemplate sgr = addNodeTemplate(csar, topology, ruleName, SecurityGroupTopologyUtils.SECGGROUPRULE_TYPES_ABSTRACT,
+                SecurityGroupTopologyUtils.SECGROUP_CSAR_VERSION);
+        setNodePropertyPathValue(csar, topology, sgr, "name", new ScalarPropertyValue(ruleName));
+        setNodePropertyPathValue(csar, topology, sgr, "protocol", capability.getProperties().get("protocol"));
+        setNodePropertyPathValue(csar, topology, sgr, "direction", new ScalarPropertyValue("inbound"));
+        setNodePropertyPathValue(csar, topology, sgr, "port", PropertyUtil.getPropertyValueFromPath(safe(capability.getProperties()), "port"));
+
+        if (this.isPublicNetwork(capability)) {
+            setNodePropertyPathValue(csar, topology, sgr, "remote", new ScalarPropertyValue(SECGROUPRULE_PUBLIC_CIDR));
+        } else {
+            NodeTemplate sourceCompute = TopologyNavigationUtil.getHostOfTypeInHostingHierarchy(topology, source, NormativeComputeConstants.COMPUTE_TYPE);
+            NodeTemplate sourceSecgroup = computeSecgroup.get(sourceCompute.getName());
+            setNodePropertyPathValue(csar, topology, sgr, "remote", new ScalarPropertyValue("_a4c_" + sourceSecgroup.getName()));
+        }
+
+        // Add relationship to Secgroup
+        NodeTemplate targetCompute = TopologyNavigationUtil.getHostOfTypeInHostingHierarchy(topology, target, NormativeComputeConstants.COMPUTE_TYPE);
+        NodeTemplate targetSecgroup = computeSecgroup.get(targetCompute.getName());
+        String capabilityName = this.getCapabilityNameFromType(targetSecgroup, SecurityGroupTopologyUtils.SECGROUPRULES_CAPABILITY);
+        this.addRelationshipTemplate(csar, topology, sgr, targetSecgroup.getName(), SecurityGroupTopologyUtils.REL_SECGROUPRULE_HOSTED_ON_SECGROUP,
+                SecurityGroupTopologyUtils.SECGROUPRULE_REQUIREMENT_SECURITY_GROUP_RULES_NAME, capabilityName);
+
+        return sgr;
+    }
+
+    private boolean isPublicNetwork(Capability capability) {
+        String networkName = ((ScalarPropertyValue) capability.getProperties().get("network_name")).getValue();
+        if (StringUtils.equalsIgnoreCase("public", networkName)) {
+            return true;
+        }
+        return false;
+    }
+
+    private NodeTemplate createSecurityGroupAttachedToCompute(Csar csar, Topology topology, String computeName) {
+        // Add a new security group node
+        NodeTemplate secgroupNodeTemplate = addNodeTemplate(csar, topology, computeName + "_Secgroup", SecurityGroupTopologyUtils.SECGGROUP_TYPES_ABSTRACT,
+                SecurityGroupTopologyUtils.SECGROUP_CSAR_VERSION);
+
+        // Set the name
+        setNodePropertyPathValue(csar, topology, secgroupNodeTemplate, "name", new ScalarPropertyValue(computeName + "_Secgroup"));
+
+        // Link to the compute
+        NodeTemplate compute = topology.getNodeTemplates().get(computeName);
+        String capabilityName = this.getCapabilityNameFromType(compute, NormativeCapabilityTypes.ENDPOINT_ADMIN);
+        this.addRelationshipTemplate(csar, topology, secgroupNodeTemplate, computeName, SecurityGroupTopologyUtils.REL_SECGROUP_CONNECTS_TO_COMPUTE,
+                SecurityGroupTopologyUtils.SECGROUP_REQUIREMENT_ENDPOINT_NAME, capabilityName);
+
+        return secgroupNodeTemplate;
+    }
+
+    private String getCapabilityNameFromType(NodeTemplate nodeTemplate, String capabilityTypeName) {
+        for (String capabilityName : safe(nodeTemplate.getCapabilities()).keySet()) {
+            Capability capability = nodeTemplate.getCapabilities().get(capabilityName);
+            if (capability.getType().equals(capabilityTypeName)) {
+                return capabilityName;
+            }
+            // if the type does not strictly equals we should check the derived from element
+            CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, capability.getType());
+            if (ToscaTypeUtils.isOfType(capabilityType, capabilityTypeName)) {
+                return capabilityName;
+            }
+        }
+        return null;
     }
 
 }

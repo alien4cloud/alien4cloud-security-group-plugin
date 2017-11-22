@@ -60,11 +60,11 @@ node_types:
       protocol:
         type: string
         constraints:
-          - valid_values: [ 'UDP', 'TCP', 'ICMP']
+          - valid_values: [ 'udp', 'tcp', 'icmp']
           # - in_range: [ 0, 255 ]
           # c.f.  https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_IpPermission.html
           #       https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
-        default: TCP
+        default: tcp
       direction:
         type: string
         constraints:
@@ -78,22 +78,33 @@ node_types:
         type: string
         description: The source of the traffic to be allowed via this rule. CIDR or a security group name
         constraints:
-          - pattern: '([1-9][0-9]{0,2}\.[0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3}(/[0-9]{1,2})?)|[a-zA-Z0-9-_]*' # 10.0.10.2, 10.0.10.0/24, sg-17281a2 or security group name
+          - pattern: '([0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3}(/[0-9]{1,2})?)|[a-zA-Z0-9-_]*' # 10.0.10.2, 10.0.10.0/24, sg-17281a2 or security group name
 
 
   org.alien4cloud.nodes.aws.SecurityGroup:
     derived_from: org.alien4cloud.nodes.SecurityGroup
     description: Implementation of a security group in AWS
+    attributes:
+      iaas_id: { get_operation_output: [SELF, Standard, start, AWS_SECURITY_GROUP_ID] }
+    properties:
+      vpc_id:
+        type: string
+        required: false
     interfaces:
       Standard:
-        start: scripts/start.sh # TODO
+        start:
+          inputs:
+            SECGROUP_NAME: { get_property: [SELF, name] }
+            VPC_ID: { get_property: [SELF, vpc_id] }
+          implementation: scripts/create_security_group.sh
+        stop:
+          inputs:
+            AWS_ID: { get_attribute: [SELF, iaas_id] }
+          implementation: scripts/delete_security_group.sh
 
   org.alien4cloud.nodes.aws.SecurityGroupRule:
     derived_from: org.alien4cloud.nodes.SecurityGroupRule
     description: Implementation of a security group rule in AWS
-    interfaces:
-      Standard:
-        start: scripts/start.sh # TODO
 
 capability_types:
 
@@ -107,8 +118,28 @@ capability_types:
 relationship_types:
 
   org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup:
-    derived_from: tosca.relationships.HostedOn
+    derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [ org.alien4cloud.capabilities.SecurityGroupRules ]
+    interfaces:
+      configure:
+        add_source:
+          inputs:
+            RULE_NAME: { get_property: [SOURCE, name] }
+            SEC_GROUP_ID: { get_attribute: [TARGET, iaas_id] }
+            PROTOCOL: { get_property: [SOURCE, protocol] }
+            DIRECTION: { get_property: [SOURCE, direction] }
+            PORT: { get_property: [SOURCE, port] }
+            REMOTE: { get_property: [SOURCE, remote] }
+          implementation: scripts/create_security_group_rule.sh
+        remove_source:
+          inputs:
+            RULE_NAME: { get_property: [SOURCE, name] }
+            SEC_GROUP_ID: { get_attribute: [TARGET, iaas_id] }
+            PROTOCOL: { get_property: [SOURCE, protocol] }
+            DIRECTION: { get_property: [SOURCE, direction] }
+            PORT: { get_property: [SOURCE, port] }
+            REMOTE: { get_property: [SOURCE, remote] }
+          implementation: scripts/delete_security_group_rule.sh
 
   org.alien4cloud.relationships.DependsOnSecurityGroup:
     derived_from: tosca.relationships.DependsOn

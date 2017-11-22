@@ -67,7 +67,7 @@ topology_template:
       type: org.alien4cloud.nodes.SecurityGroupRule
       properties:
         name: "Mongod_endpoint_inbound"
-        protocol: TCP
+        protocol: tcp
         direction: inbound
         port: 27017
         remote: "PRIVATE"

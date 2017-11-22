@@ -141,7 +141,7 @@ topology_template:
       type: org.alien4cloud.nodes.SecurityGroupRule
       properties:
         name: "Nodecellar_app_endpoint_inbound"
-        protocol: TCP
+        protocol: tcp
         direction: inbound
         port: 8088
         remote: PUBLIC
@@ -156,7 +156,7 @@ topology_template:
       type: org.alien4cloud.nodes.SecurityGroupRule
       properties:
         name: "Mongod_endpoint_inbound"
-        protocol: TCP
+        protocol: tcp
         direction: inbound
         port: 27017
         remote: "_a4c_NodeJSHostSecgroup"
