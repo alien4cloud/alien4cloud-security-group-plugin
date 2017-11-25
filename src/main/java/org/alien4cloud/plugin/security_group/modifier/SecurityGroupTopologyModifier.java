@@ -1,5 +1,9 @@
 package org.alien4cloud.plugin.security_group.modifier;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import alien4cloud.tosca.context.ToscaContext;
 import alien4cloud.tosca.context.ToscaContextual;
 import alien4cloud.utils.PropertyUtil;
@@ -25,10 +29,6 @@ import org.alien4cloud.tosca.utils.ToscaTypeUtils;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import static alien4cloud.utils.AlienUtils.safe;
 
 /**
@@ -39,6 +39,7 @@ import static alien4cloud.utils.AlienUtils.safe;
 public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
 
     public static final String SECGROUPRULE_PUBLIC_CIDR = "0.0.0.0/0";
+    public static final String SECGROUPRULE_SG_PREFIX = "_a4c_";
 
     @Override
     @ToscaContextual
@@ -188,7 +189,7 @@ public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
         } else {
             NodeTemplate sourceCompute = TopologyNavigationUtil.getHostOfTypeInHostingHierarchy(topology, source, NormativeComputeConstants.COMPUTE_TYPE);
             NodeTemplate sourceSecgroup = computeSecgroup.get(sourceCompute.getName());
-            setNodePropertyPathValue(csar, topology, sgr, "remote", new ScalarPropertyValue("_a4c_" + sourceSecgroup.getName()));
+            setNodePropertyPathValue(csar, topology, sgr, "remote", new ScalarPropertyValue(SECGROUPRULE_SG_PREFIX + sourceSecgroup.getName()));
         }
 
         // Add relationship to Secgroup

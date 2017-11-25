@@ -16,11 +16,10 @@ Feature: Topology modifiers chain tests
     Given I upload unzipped CSAR from path "src/test/resources/csar/nodecellar-type.yml"
 
   Scenario: Apply security group modifier on a nodecellar topology
-    Given I upload unzipped CSAR from path "src/test/resources/data/03-nodecellar-network/30-nodecellar-network-template.yml"
-    And I get the topology related to the CSAR with name "30-nodecellar-network-template" and version "2.0.0-SNAPSHOT"
+    Given I upload unzipped CSAR from path "src/test/resources/data/03-nodecellar/30-nodecellar-template.yml"
+    And I get the topology related to the CSAR with name "30-nodecellar-template" and version "2.0.0-SNAPSHOT"
     When I execute the modifier "security_group-modifier" on the current topology
-    # And I execute the modifier "kubernetes-automatching-modifier" on the current topology
-    # And I execute the modifier "kubernetes-final-modifier" on the current topology
+    And I execute the modifier "security_group-final-modifier" on the current topology
 
   # Scenario: Apply each modifiers on a simple topology containing 2 apache with an anti-affinity policy
   #   Given I upload unzipped CSAR from path "src/test/resources/data/02-two-apache/1-initial.yaml"

@@ -23,11 +23,11 @@ else
   SUB_CMD=authorize-security-group-egress
 fi
 
-if $(echo $REMOTE | grep -E "([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{0,2}") ; then
+if [ $(echo $REMOTE | grep -E "([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{0,2}") ] ; then
   # the remote is a CIDR 
   REMOTE_VALUE="--cidr $REMOTE"
 else
-  REMOTE_VALUE="--source-group $REMOTE"
+  REMOTE_VALUE="--source-group ${REMOTE#_a4c_}" # A generated secgroup are prefixed with _a4c_, we have to remove it
 fi
 
 $AWS_EC2_CMD $SUB_CMD \

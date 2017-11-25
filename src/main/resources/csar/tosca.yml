@@ -90,6 +90,13 @@ node_types:
       vpc_id:
         type: string
         required: false
+    requirements:
+      endpoint:
+        capability: tosca.capabilities.Endpoint
+        relationship: org.alien4cloud.relationships.aws.SecurityGroupConnectsToCompute
+        occurrences: [0, unbounded]
+        description: >
+          A security group is linked to a compute using the aws relationship.
     interfaces:
       Standard:
         start:
@@ -118,7 +125,7 @@ capability_types:
 relationship_types:
 
   org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup:
-    derived_from: tosca.relationships.ConnectsTo
+    derived_from: tosca.relationships.HostedOn
     valid_target_types: [ org.alien4cloud.capabilities.SecurityGroupRules ]
     interfaces:
       configure:
@@ -148,3 +155,20 @@ relationship_types:
   org.alien4cloud.relationships.SecurityGroupConnectsToCompute:
     derived_from: tosca.relationships.ConnectsTo
     valid_target_types: [ tosca.nodes.Compute ]
+
+
+  org.alien4cloud.relationships.aws.SecurityGroupConnectsToCompute:
+    derived_from: org.alien4cloud.relationships.SecurityGroupConnectsToCompute
+    interfaces:
+      configure:
+        add_target:
+          inputs:
+            AWS_INSTANCE_ID: { get_attribute: [TARGET, aws_resource_id] }
+            AWS_SECGROUP_ID: { get_attribute: [SOURCE, iaas_id] }
+          implementation: scripts/attach_security_group_to_compute.sh
+        remove_target:
+          inputs:
+            AWS_INSTANCE_ID: { get_attribute: [TARGET, aws_resource_id] }
+            AWS_SECGROUP_ID: { get_attribute: [SOURCE, iaas_id] }
+          implementation: scripts/detach_security_group_to_compute.sh
+

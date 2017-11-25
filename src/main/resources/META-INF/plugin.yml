@@ -9,11 +9,7 @@ component_descriptors:
     name: Security Groups modifier.
     description: >
       Topology modifier that transform a generic topology in ordre to automatically add security groups based on endpoints.
-#  - bean_name: security_group-anti-affinity-modifier
-#    name: Kubernetes modifier for anti-affinity policy.
-#    description: Anti-affinity policy implementation modifier.
-#  - bean_name: security_group-final-modifier
-#    name: Kubernetes spec generator modifier.
-#    description: >
-#      This topology modifier generates kube yaml spec files and TOSCA nodes for deployment.
-#      Insert this modifier to post-matched-node-setup phase. Note that you MUST also insert the security_group-modifier to your location.
+  - bean_name: security_group-final-modifier
+    name: Security Groups final modifier.
+    description: >
+      This topology modifier generates regenerate the workflow to replace delegate operations into managed operations.
