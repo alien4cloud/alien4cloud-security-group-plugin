@@ -3,6 +3,7 @@ package org.alien4cloud.plugin.security_group.modifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import alien4cloud.tosca.context.ToscaContext;
 import alien4cloud.tosca.context.ToscaContextual;
@@ -216,7 +217,8 @@ public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
                 SecurityGroupTopologyUtils.SECGROUP_CSAR_VERSION);
 
         // Set the name
-        setNodePropertyPathValue(csar, topology, secgroupNodeTemplate, "name", new ScalarPropertyValue(computeName + "_Secgroup"));
+        String secgroupName = computeName + "_Secgroup-" + UUID.randomUUID().toString();
+        setNodePropertyPathValue(csar, topology, secgroupNodeTemplate, "name", new ScalarPropertyValue(secgroupName));
 
         // Link to the compute
         NodeTemplate compute = topology.getNodeTemplates().get(computeName);
