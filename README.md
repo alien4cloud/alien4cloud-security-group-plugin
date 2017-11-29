@@ -28,7 +28,7 @@ This modifier must be attached at the `post-matched-node-setup` phase. Its goal 
 
 #### Given the nodecellar topology:
 
-![Nodecellar](./doc/default_nodecellar_topology.jpg)
+![Nodecellar](images/default_nodecellar_topology.jpg)
 
 In this topology:
 
@@ -38,7 +38,7 @@ In this topology:
 
 #### After that the modifier is applied
 
-![ModifiedNodecellar](./doc/modified_nodecellar_topology.jpg)
+![ModifiedNodecellar](images/modified_nodecellar_topology.jpg)
 
 2 Security groups are added to the topology:
 
