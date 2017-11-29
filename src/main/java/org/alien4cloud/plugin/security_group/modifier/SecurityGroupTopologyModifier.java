@@ -24,6 +24,7 @@ import org.alien4cloud.tosca.model.types.CapabilityType;
 import org.alien4cloud.tosca.model.types.NodeType;
 import org.alien4cloud.tosca.normative.constants.NormativeCapabilityTypes;
 import org.alien4cloud.tosca.normative.constants.NormativeComputeConstants;
+import org.alien4cloud.tosca.normative.constants.NormativeRelationshipConstants;
 import org.alien4cloud.tosca.utils.NodeTemplateUtils;
 import org.alien4cloud.tosca.utils.TopologyNavigationUtil;
 import org.alien4cloud.tosca.utils.ToscaTypeUtils;
@@ -190,7 +191,11 @@ public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
         } else {
             NodeTemplate sourceCompute = TopologyNavigationUtil.getHostOfTypeInHostingHierarchy(topology, source, NormativeComputeConstants.COMPUTE_TYPE);
             NodeTemplate sourceSecgroup = computeSecgroup.get(sourceCompute.getName());
-            setNodePropertyPathValue(csar, topology, sgr, "remote", new ScalarPropertyValue(SECGROUPRULE_SG_PREFIX + sourceSecgroup.getName()));
+            String uniqueName = ((ScalarPropertyValue) sourceSecgroup.getProperties().get("name")).getValue(); // get the unique name from the property
+            setNodePropertyPathValue(csar, topology, sgr, "remote", new ScalarPropertyValue(SECGROUPRULE_SG_PREFIX + uniqueName));
+
+            // Add a dependency to make sure that the secgroup is already created before creating the rule.
+            addRelationshipTemplate(csar, topology, sgr, sourceSecgroup.getName(), NormativeRelationshipConstants.DEPENDS_ON, "dependency", "feature");
         }
 
         // Add relationship to Secgroup
