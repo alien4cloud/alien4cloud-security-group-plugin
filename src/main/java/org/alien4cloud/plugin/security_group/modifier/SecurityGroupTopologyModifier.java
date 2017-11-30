@@ -88,10 +88,10 @@ public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
         if (properties.containsKey(key)) {
             AbstractPropertyValue abstractPortPropertyValue = properties.get(key);
             if (abstractPortPropertyValue instanceof ScalarPropertyValue && ((ScalarPropertyValue) abstractPortPropertyValue).getValue() != null) {
-                return false;
+                return true;
             }
         }
-        return true;
+        return false;
     }
 
     /**
@@ -111,29 +111,31 @@ public class SecurityGroupTopologyModifier extends TopologyModifierSupport {
         }
 
         // Looking for endpoints that are target of a relationships
-        List<NodeTemplate> templates = Lists.newArrayList(topology.getNodeTemplates().values());
-        for (NodeTemplate nodeTemplate : templates) {
-            NodeType nodeType = ToscaContext.get(NodeType.class, nodeTemplate.getType());
-            if (!ToscaTypeUtils.isOfType(nodeType, SecurityGroupTopologyUtils.SECGGROUP_TYPES_ABSTRACT)) {
-                List<RelationshipTemplate> endpointRelationships = this.getRelationshipWithEndpointTarget(nodeTemplate);
-                for (RelationshipTemplate relationship : endpointRelationships) {
-                    NodeTemplate targetNodeTemplate = topology.getNodeTemplates().get(relationship.getTarget());
-                    this.createSecurityGroupRule(csar, topology, nodeTemplate, targetNodeTemplate, relationship, computeSecgroup);
+        for (List<NodeTemplate> templates : endpointsPerCompute.values()) {
+            for (NodeTemplate nodeTemplate : templates) {
+                NodeType nodeType = ToscaContext.get(NodeType.class, nodeTemplate.getType());
+                if (!ToscaTypeUtils.isOfType(nodeType, SecurityGroupTopologyUtils.SECGGROUP_TYPES_ABSTRACT)) {
+                    List<RelationshipTemplate> endpointRelationships = this.getRelationshipWithEndpointTarget(nodeTemplate);
+                    for (RelationshipTemplate relationship : endpointRelationships) {
+                        NodeTemplate targetNodeTemplate = topology.getNodeTemplates().get(relationship.getTarget());
+                        this.createSecurityGroupRule(csar, topology, nodeTemplate, targetNodeTemplate, relationship, computeSecgroup);
+                    }
                 }
             }
         }
 
         // Add public rule
-        for (NodeTemplate nodeTemplate : templates) {
-            for (Map.Entry<String, Capability> entrySet : nodeTemplate.getCapabilities().entrySet()) {
-                CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, entrySet.getValue().getType());
-                if (ToscaTypeUtils.isOfType(capabilityType, NormativeCapabilityTypes.ENDPOINT)) {
-                    if (this.isPublicNetwork(entrySet.getValue())) {
-                        this.createPublicSecurityGroupRule(csar, topology, nodeTemplate, entrySet.getKey(), entrySet.getValue(), computeSecgroup);
+        for (List<NodeTemplate> templates : endpointsPerCompute.values()) {
+            for (NodeTemplate nodeTemplate : templates) {
+                for (Map.Entry<String, Capability> entrySet : nodeTemplate.getCapabilities().entrySet()) {
+                    CapabilityType capabilityType = ToscaContext.get(CapabilityType.class, entrySet.getValue().getType());
+                    if (ToscaTypeUtils.isOfType(capabilityType, NormativeCapabilityTypes.ENDPOINT)) {
+                        if (this.isPublicNetwork(entrySet.getValue())) {
+                            this.createPublicSecurityGroupRule(csar, topology, nodeTemplate, entrySet.getKey(), entrySet.getValue(), computeSecgroup);
+                        }
                     }
                 }
             }
-
         }
     }
 
