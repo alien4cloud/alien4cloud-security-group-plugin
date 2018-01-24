@@ -2,6 +2,7 @@ package org.alien4cloud.plugin.security_group.modifier;
 
 import javax.annotation.Resource;
 
+import alien4cloud.paas.wf.TopologyContext;
 import alien4cloud.paas.wf.WorkflowsBuilderService;
 import alien4cloud.paas.wf.validation.WorkflowValidator;
 import alien4cloud.tosca.context.ToscaContext;
@@ -45,7 +46,7 @@ public class SecurityGroupFinalTopologyModifier extends TopologyModifierSupport 
     private void doProcess(Topology topology, FlowExecutionContext context) {
         Csar csar = new Csar(topology.getArchiveName(), topology.getArchiveVersion());
 
-        WorkflowsBuilderService.TopologyContext topologyContext = workflowBuilderService.buildTopologyContext(topology, csar);
+        TopologyContext topologyContext = workflowBuilderService.buildTopologyContext(topology, csar);
         for (NodeTemplate nodeTemplate : safe(topology.getNodeTemplates()).values()) {
             if (isSecurityGroupOrRuleType(nodeTemplate)) {
                 rebuildNodeWorkflow(topology, csar, topologyContext, nodeTemplate);
@@ -53,7 +54,7 @@ public class SecurityGroupFinalTopologyModifier extends TopologyModifierSupport 
         }
     }
 
-    private void rebuildNodeWorkflow(Topology topology, Csar csar, WorkflowsBuilderService.TopologyContext topologyContext, NodeTemplate nodeTemplate) {
+    private void rebuildNodeWorkflow(Topology topology, Csar csar, TopologyContext topologyContext, NodeTemplate nodeTemplate) {
         // Rebuild the workflow of the nodeTemplate.
         log.fine("Rebuild Workflow for node template " + nodeTemplate.getName());
         workflowBuilderService.removeNode(topology, csar, nodeTemplate.getName());
