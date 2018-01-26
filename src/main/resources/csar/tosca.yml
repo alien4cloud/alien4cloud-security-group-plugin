@@ -1,0 +1,174 @@
+tosca_definitions_version: alien_dsl_2_0_0
+
+metadata:
+  template_name: org.alien4cloud.security-groups
+  template_version: 2.0.0-SNAPSHOT
+  template_author: alien4cloud
+
+description: TOSCA components to represent Security Group.
+
+imports:
+  - tosca-normative-types:1.0.0-ALIEN20
+
+
+node_types:
+
+  org.alien4cloud.nodes.SecurityGroup:
+    abstract: true
+    derived_from: tosca.nodes.Root
+    description: Represent a security groups
+    capabilities:
+      security_group:
+        type: org.alien4cloud.capabilities.SecurityGroup
+      security_group_rules:
+        type: org.alien4cloud.capabilities.SecurityGroupRules
+    requirements:
+      endpoint:
+        capability: tosca.capabilities.Endpoint
+        relationship: org.alien4cloud.relationships.SecurityGroupConnectsToCompute
+        occurrences: [0, unbounded]
+        description: >
+          A security group is linked to a compute.
+    properties:
+      name:
+        type: string
+        description: The name of the security group
+        required: true
+
+  org.alien4cloud.nodes.SecurityGroupRule:
+    abstract: true
+    derived_from: tosca.nodes.Root
+    description: Represent a security rule
+    requirements:
+      security_group_rule:
+        capability: org.alien4cloud.capabilities.SecurityGroup
+        relationship: org.alien4cloud.relationships.DependsOnSecurityGroup
+        occurrences: [0, unbounded]
+        description: >
+          If the remote target or source of this rule depends on another security group, this relationship is to make sure that the target security group is created.
+      security_group_rules:
+        capability: org.alien4cloud.capabilities.SecurityGroupRules
+        relationship: org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup
+        occurrences: [1, 1]
+        description: >
+          A rule must linked to a security group
+    properties:
+      name:
+        type: string
+        description: The name of the security group rule
+        required: false
+      protocol:
+        type: string
+        constraints:
+          - valid_values: [ 'udp', 'tcp', 'icmp']
+          # - in_range: [ 0, 255 ]
+          # c.f.  https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_IpPermission.html
+          #       https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
+        default: tcp
+      direction:
+        type: string
+        constraints:
+          - valid_values: [ 'inbound', 'outbound']
+        default: inbound
+      port:
+        type: integer
+        constraints:
+          - in_range : [ 0, 65535 ]
+      remote:
+        type: string
+        description: The source of the traffic to be allowed via this rule. CIDR or a security group name
+        constraints:
+          - pattern: '([0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3}\.[0-9]{0,3}(/[0-9]{1,2})?)|[a-zA-Z0-9-_]*' # 10.0.10.2, 10.0.10.0/24, sg-17281a2 or security group name
+
+
+  org.alien4cloud.nodes.aws.SecurityGroup:
+    derived_from: org.alien4cloud.nodes.SecurityGroup
+    description: Implementation of a security group in AWS
+    attributes:
+      iaas_id: { get_operation_output: [SELF, Standard, start, AWS_SECURITY_GROUP_ID] }
+    properties:
+      vpc_id:
+        type: string
+        required: false
+    requirements:
+      endpoint:
+        capability: tosca.capabilities.Endpoint
+        relationship: org.alien4cloud.relationships.aws.SecurityGroupConnectsToCompute
+        occurrences: [0, unbounded]
+        description: >
+          A security group is linked to a compute using the aws relationship.
+    interfaces:
+      Standard:
+        start:
+          inputs:
+            SECGROUP_NAME: { get_property: [SELF, name] }
+            VPC_ID: { get_property: [SELF, vpc_id] }
+          implementation: scripts/create_security_group.sh
+        stop:
+          inputs:
+            AWS_ID: { get_attribute: [SELF, iaas_id] }
+          implementation: scripts/delete_security_group.sh
+
+  org.alien4cloud.nodes.aws.SecurityGroupRule:
+    derived_from: org.alien4cloud.nodes.SecurityGroupRule
+    description: Implementation of a security group rule in AWS
+
+capability_types:
+
+  org.alien4cloud.capabilities.SecurityGroup:
+    derived_from: tosca.capabilities.Root
+
+  org.alien4cloud.capabilities.SecurityGroupRules:
+    derived_from: tosca.capabilities.Root
+
+
+relationship_types:
+
+  org.alien4cloud.relationships.SecGroupRuleHostedOnSecGroup:
+    derived_from: tosca.relationships.HostedOn
+    valid_target_types: [ org.alien4cloud.capabilities.SecurityGroupRules ]
+    interfaces:
+      configure:
+        add_source:
+          inputs:
+            RULE_NAME: { get_property: [SOURCE, name] }
+            SEC_GROUP_ID: { get_attribute: [TARGET, iaas_id] }
+            PROTOCOL: { get_property: [SOURCE, protocol] }
+            DIRECTION: { get_property: [SOURCE, direction] }
+            PORT: { get_property: [SOURCE, port] }
+            REMOTE: { get_property: [SOURCE, remote] }
+          implementation: scripts/create_security_group_rule.sh
+        remove_source:
+          inputs:
+            RULE_NAME: { get_property: [SOURCE, name] }
+            SEC_GROUP_ID: { get_attribute: [TARGET, iaas_id] }
+            PROTOCOL: { get_property: [SOURCE, protocol] }
+            DIRECTION: { get_property: [SOURCE, direction] }
+            PORT: { get_property: [SOURCE, port] }
+            REMOTE: { get_property: [SOURCE, remote] }
+          implementation: scripts/delete_security_group_rule.sh
+
+  org.alien4cloud.relationships.DependsOnSecurityGroup:
+    derived_from: tosca.relationships.DependsOn
+    valid_target_types: [ org.alien4cloud.capabilities.SecurityGroup ]
+
+  org.alien4cloud.relationships.SecurityGroupConnectsToCompute:
+    derived_from: tosca.relationships.ConnectsTo
+    valid_target_types: [ tosca.nodes.Compute ]
+
+
+  org.alien4cloud.relationships.aws.SecurityGroupConnectsToCompute:
+    derived_from: org.alien4cloud.relationships.SecurityGroupConnectsToCompute
+    interfaces:
+      configure:
+        add_target:
+          inputs:
+            AWS_INSTANCE_ID: { get_attribute: [TARGET, aws_resource_id] }
+            AWS_SECGROUP_ID: { get_attribute: [SOURCE, iaas_id] }
+          implementation: scripts/attach_security_group_to_compute.sh
+        remove_target:
+          inputs:
+            AWS_INSTANCE_ID: { get_attribute: [TARGET, aws_resource_id] }
+            AWS_SECGROUP_ID: { get_attribute: [SOURCE, iaas_id] }
+          implementation: scripts/detach_security_group_to_compute.sh
+

@@ -1,0 +1,52 @@
+tosca_definitions_version: alien_dsl_2_0_0
+
+metadata:
+  template_name: 20-mongo-network-template
+  template_version: 1.4.0-SNAPSHOT
+  template_author: alien4cloud
+
+description: A sample topology template with mongodb.
+
+imports:
+  - tosca-normative-types:1.0.0-ALIEN14
+  - mongo-types:1.4.0-SNAPSHOT
+
+topology_template:
+
+  node_templates:
+
+    Network:
+      type: tosca.nodes.Network
+      properties:
+        ip_version: 4
+
+    MongoHost:
+      type: tosca.nodes.Compute
+      requirements:
+        - networkNetworkConnection1:
+            type_requirement: network
+            node: Network
+            capability: tosca.capabilities.Connectivity
+            relationship: tosca.relationships.Network
+      capabilities:
+        os:
+          properties:
+            architecture: x86_64
+            type: linux
+            distribution: ubuntu
+
+    Mongod:
+      type: org.alien4cloud.nodes.Mongod
+      requirements:
+        - host:
+            node: MongoHost
+            capability: tosca.capabilities.Container
+            relationship: tosca.relationships.HostedOn
+      capabilities:
+        endpoint:
+          properties:
+            port: 27017
+            protocol: tcp
+            secure: false
+            network_name: PRIVATE
+            initiator: source
