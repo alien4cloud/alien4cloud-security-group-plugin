@@ -9,7 +9,7 @@ description: A sample topology template with mongodb.
 
 imports:
   - tosca-normative-types:1.0.0-ALIEN14
-  - org.alien4cloud.security-groups:2.0.0-SNAPSHOT
+  - org.alien4cloud.security-groups:2.0.0
   - mongo-types:1.4.0-SNAPSHOT
   - nodecellar-type:1.4.0-SNAPSHOT
   - nodejs-type:1.4.0-SNAPSHOT

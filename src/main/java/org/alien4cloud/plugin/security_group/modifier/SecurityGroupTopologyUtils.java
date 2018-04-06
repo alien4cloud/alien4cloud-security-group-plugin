@@ -31,7 +31,7 @@ public class SecurityGroupTopologyUtils {
     public static final String AWS_SECGGROUPRULE_TYPES = "org.alien4cloud.nodes.aws.SecurityGroupRule";
 
     // TODO: should be parsed from src/main/resources/csar/tosca.yml or query ES to get the last version of this CSAR
-    public static final String SECGROUP_CSAR_VERSION = "2.0.0-SNAPSHOT";
+    public static final String SECGROUP_CSAR_VERSION = "2.0.0";
 
     /**
      * Recursively get the root Object value eventually hosted by a PropertyValue. If the value is a collection (ListPropertyValue, AbstractPropertyValue) then returns a collection of Objects.
